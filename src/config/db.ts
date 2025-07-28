@@ -1,26 +1,37 @@
-import { createPool, Pool, RowDataPacket } from 'mysql2/promise';
+import { createConnection, Connection } from 'mysql2';
 import { config } from 'dotenv';
 
+// Load environment variables
 config();
 
-const pool: Pool = createPool({
+const connection: Connection = createConnection({
   host: process.env.DB_HOST,
-  port: Number(process.env.DB_PORT),
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
-  waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0,
 });
 
-// Use RowDataPacket as base to satisfy mysql2 constraints
-const query = async <T extends RowDataPacket[] = RowDataPacket[]>(
-  sql: string,
-  params?: any[]
-): Promise<T> => {
-  const [rows] = await pool.execute<T>(sql, params);
-  return rows;
+// Async query function using Promises
+const query = (sql: string, params?: any[]): Promise<any> => {
+  return new Promise((resolve, reject) => {
+    connection.query(sql, params, (err, results) => {
+      if (err) {
+        console.error('Database query error:', err);
+        reject(err);
+      } else {
+        resolve(results);
+      }
+    });
+  });
 };
 
-export { pool, query };
+// Initial connection test
+connection.connect(err => {
+  if (err) {
+    console.error('❌ Error connecting to the database:', err.stack);
+  } else {
+    console.log('✅ Connected to MySQL as ID', connection.threadId);
+  }
+});
+
+export { connection, query };
