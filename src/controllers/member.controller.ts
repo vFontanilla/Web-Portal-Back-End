@@ -4,13 +4,14 @@ import { v4 as uuidv4 } from "uuid";
 import { toZonedTime, format } from 'date-fns-tz';
 import path from 'path';
 import fs from "fs";
+import { RowDataPacket } from 'mysql2';
 
 // GET members (all or filtered by state)
 export const getMember = async (req: Request, res: Response) => {
   const { state } = req.query;
 
   try {
-    const members = state && typeof state === 'string'
+    const members: RowDataPacket[] = state && typeof state === 'string'
       ? await query('SELECT * FROM members WHERE state = ?', [state])
       : await query('SELECT * FROM members');
 
@@ -81,7 +82,7 @@ export const getUploadedDocuments = async (req: Request, res: Response) => {
   const memberId = req.params.memberId;
 
   try {
-    const documents: any[] = await query(
+    const documents: RowDataPacket[] = await query(
       `SELECT filename FROM documentsuploaded WHERE memberId = ? ORDER BY created_at DESC LIMIT 1`,
       [memberId]
     );
@@ -124,7 +125,7 @@ export const getappointment = async (req: Request, res: Response) => {
   }
 
   try {
-    const result: any[] = await query(
+    const result: RowDataPacket[] = await query(
       `SELECT calendarDate FROM members WHERE memberId = ?`,
       [memberId]
     );
@@ -219,7 +220,7 @@ export const deleteMemberFile = async (req: Request, res: Response) => {
   }
 
   try {
-    const result: any[] = await query(
+    const result: RowDataPacket[] = await query(
       `SELECT filename FROM documentsuploaded WHERE memberId = ? ORDER BY created_at DESC LIMIT 1`,
       [memberId]
     );
@@ -256,5 +257,5 @@ export const deleteMemberFile = async (req: Request, res: Response) => {
   }
 };
 
-// Filtered members (redundant now; merged in getMember)
+// Filtered members (merged version)
 export const getFilteredMembers = getMember;

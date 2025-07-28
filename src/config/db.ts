@@ -1,37 +1,25 @@
-import { createConnection, Connection } from 'mysql2';
+import { createPool, Pool, RowDataPacket, OkPacket, ResultSetHeader } from 'mysql2/promise';
 import { config } from 'dotenv';
 
-// Load environment variables
 config();
 
-const connection: Connection = createConnection({
+const pool: Pool = createPool({
   host: process.env.DB_HOST,
+  port: Number(process.env.DB_PORT),
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
+  waitForConnections: true,
+  connectionLimit: 10,
+  queueLimit: 0,
 });
 
-// Async query function using Promises
-const query = (sql: string, params?: any[]): Promise<any> => {
-  return new Promise((resolve, reject) => {
-    connection.query(sql, params, (err, results) => {
-      if (err) {
-        console.error('Database query error:', err);
-        reject(err);
-      } else {
-        resolve(results);
-      }
-    });
-  });
+// Use union of expected return types
+type DBResponse = RowDataPacket[] | RowDataPacket[][] | OkPacket | OkPacket[] | ResultSetHeader;
+
+const query = async <T = DBResponse>(sql: string, params?: any[]): Promise<T> => {
+  const [rows] = await pool.execute(sql, params);
+  return rows as T;
 };
 
-// Initial connection test
-connection.connect(err => {
-  if (err) {
-    console.error('❌ Error connecting to the database:', err.stack);
-  } else {
-    console.log('✅ Connected to MySQL as ID', connection.threadId);
-  }
-});
-
-export { connection, query };
+export { pool, query, type DBResponse };
