@@ -5,52 +5,34 @@ import { toZonedTime, format } from 'date-fns-tz';
 import path from 'path';
 import fs from "fs";
 
-
-// export const getMember = async (req: Request, res: Response) => {
-//   try {
-//     const members = await query('SELECT * FROM members');
-//     res.json(members);
-//   } catch (err) {
-//     console.error('Failed to fetch members:', err);
-//     res.status(500).json({ message: 'Server error' });
-//   }
-// };
-
+// GET members (all or filtered by state)
 export const getMember = async (req: Request, res: Response) => {
   const { state } = req.query;
 
   try {
-    let members;
+    const members = state && typeof state === 'string'
+      ? await query('SELECT * FROM members WHERE state = ?', [state])
+      : await query('SELECT * FROM members');
 
-    if (state && typeof state === 'string') {
-      members = await query('SELECT * FROM members WHERE state = ?', [state]);
-    } else {
-      members = await query('SELECT * FROM members');
-    }
-
-    res.json({ members }); // wrap in object for consistency
+    res.json({ members });
   } catch (err) {
     console.error('Failed to fetch members:', err);
     res.status(500).json({ message: 'Server error' });
   }
 };
 
+// INSERT member
 export const putMember = async (req: Request, res: Response) => {
   try {
     const {
-      name,
-      memberId,
-      state,
-      status,
-      applicationDocStatus,
-      calendarDate,
-      memberType,
-      comments,
+      name, memberId, state, status,
+      applicationDocStatus, calendarDate,
+      memberType, comments,
     } = req.body;
 
     const id = uuidv4();
 
-    const result = await query(
+    await query(
       `INSERT INTO members 
       (id, name, memberId, state, status, applicationDocStatus, calendarDate, memberType, comments) 
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -59,12 +41,7 @@ export const putMember = async (req: Request, res: Response) => {
 
     res.status(201).json({
       message: 'Member added successfully',
-      inserted: {
-        id,
-        name,
-        memberId,
-        state,
-      },
+      inserted: { id, name, memberId, state },
     });
   } catch (error) {
     console.error('Insert error:', error);
@@ -72,24 +49,23 @@ export const putMember = async (req: Request, res: Response) => {
   }
 };
 
+// Upload document
 export const uploadDocs = async (req: Request, res: Response) => {
+  const memberId = req.body.memberId;
+  const file = req.file;
+
+  if (!file || !memberId) {
+    return res.status(400).json({ message: 'Missing file or memberId' });
+  }
+
   try {
-    const memberId = req.body.memberId;
-    const file = req.file;
-
-    if (!file || !memberId) {
-      return res.status(400).json({ message: 'Missing file or memberId' });
-    }
-
-    // Insert document into documentsUploaded table
     await query(
       `INSERT INTO documentsuploaded (memberId, filename, filepath) VALUES (?, ?, ?)`,
       [memberId, file.originalname, file.path]
     );
 
-    // Update member's applicationDocStatus to 'Submitted'
     await query(
-      `UPDATE members SET status='Pending', applicationDocStatus = 'Submitted' WHERE memberId = ?`,
+      `UPDATE members SET status='Pending', applicationDocStatus='Submitted' WHERE memberId = ?`,
       [memberId]
     );
 
@@ -100,14 +76,16 @@ export const uploadDocs = async (req: Request, res: Response) => {
   }
 };
 
+// Get latest uploaded document
 export const getUploadedDocuments = async (req: Request, res: Response) => {
   const memberId = req.params.memberId;
 
   try {
-    const documents = await query(
+    const documents: any[] = await query(
       `SELECT filename FROM documentsuploaded WHERE memberId = ? ORDER BY created_at DESC LIMIT 1`,
       [memberId]
     );
+
     res.json(documents[0] || {});
   } catch (error) {
     console.error("Error fetching document:", error);
@@ -115,28 +93,21 @@ export const getUploadedDocuments = async (req: Request, res: Response) => {
   }
 };
 
+// Set appointment
 export const putappointment = async (req: Request, res: Response) => {
   const { memberId, appointmentDate } = req.body;
-
-    // Step 1: Convert incoming UTC date string to Date object
-    const utcDate = new Date(appointmentDate);
-    const timeZone = 'Asia/Manila';
-    const phDate = toZonedTime(utcDate, timeZone);
-
-    const formattedDate = format(phDate, 'yyyy-MM-dd HH:mm:ss', { timeZone });
-
-  console.log("MemberId:", memberId);
-  console.log("AppointmentDate:", formattedDate);
 
   if (!memberId || !appointmentDate) {
     return res.status(400).json({ message: "Missing data" });
   }
 
+  const utcDate = new Date(appointmentDate);
+  const timeZone = 'Asia/Manila';
+  const phDate = toZonedTime(utcDate, timeZone);
+  const formattedDate = format(phDate, 'yyyy-MM-dd HH:mm:ss', { timeZone });
+
   try {
-    await query(
-      `UPDATE members SET calendarDate = ? WHERE memberId = ?`,
-      [formattedDate, memberId]
-    );
+    await query(`UPDATE members SET calendarDate = ? WHERE memberId = ?`, [formattedDate, memberId]);
     res.status(200).json({ message: "Appointment updated.", appointmentDate: formattedDate });
   } catch (err) {
     console.error(err);
@@ -144,73 +115,64 @@ export const putappointment = async (req: Request, res: Response) => {
   }
 };
 
+// Get appointment
 export const getappointment = async (req: Request, res: Response) => {
   const { memberId } = req.params;
 
-  console.log("MemberIdsa:", memberId);
+  if (!memberId) {
+    return res.status(400).json({ message: "Missing memberId" });
+  }
 
   try {
-    if (!memberId) {
-      return res.status(400).json({ message: "Missing memberId" });
-    }
-
-    const resulta = await query(
+    const result: any[] = await query(
       `SELECT calendarDate FROM members WHERE memberId = ?`,
       [memberId]
     );
 
-    if (resulta.length === 0) {
+    if (result.length === 0) {
       return res.status(404).json({ message: "No appointment found" });
     }
 
-    console.log("DB Result:", resulta);
-    return res.json({ appointmentDate: resulta[0].calendarDate });
+    return res.json({ appointmentDate: result[0].calendarDate });
   } catch (err) {
     console.error("DB Error:", err);
     return res.status(500).json({ message: "Server error" });
   }
 };
 
+// Update comment
 export const putComment = async (req: Request, res: Response) => {
   const { memberId, comment } = req.body;
 
-  console.log("Received comment for Member ID:", memberId, comment);
+  if (!memberId || !comment?.trim()) {
+    return res.status(400).json({ message: "Missing memberId or comment" });
+  }
 
   try {
-    if (!memberId || !comment?.trim()) {
-      return res.status(400).json({ message: "Missing memberId or comment" });
-    }
-
-    // Option 1: Update comment field in `members` table (if it exists)
     await query(
       `UPDATE members SET comments = ? WHERE memberId = ?`,
       [comment, memberId]
     );
 
-    // Option 2 (alternative): Insert into separate comments table (if exists)
-    // await query(
-    //   `INSERT INTO member_comments (memberId, comment) VALUES (?, ?)`,
-    //   [memberId, comment]
-    // );
-
-    return res.status(200).json({ message: "Comment updated successfully.", data: { memberId, comment }});
-
+    return res.status(200).json({
+      message: "Comment updated successfully.",
+      data: { memberId, comment }
+    });
   } catch (err) {
     console.error("Error saving comment:", err);
     return res.status(500).json({ message: "Server error while saving comment." });
   }
 };
 
+// Update memberType
 export const putMemberType = async (req: Request, res: Response) => {
   const { memberId, type } = req.body;
 
-  console.log("Received memberType update:", memberId, type);
+  if (!memberId || !type) {
+    return res.status(400).json({ message: "Missing memberId or memberType" });
+  }
 
   try {
-    if (!memberId || !type) {
-      return res.status(400).json({ message: "Missing memberId or memberType" });
-    }
-
     await query(
       `UPDATE members SET memberType = ? WHERE memberId = ?`,
       [type, memberId]
@@ -227,14 +189,15 @@ export const putMemberType = async (req: Request, res: Response) => {
   }
 };
 
+// Update member status
 export const updateMemberStatus = async (req: Request, res: Response) => {
   const { memberId, status } = req.body;
 
-  try {
-    if (!memberId || !status) {
-      return res.status(400).json({ message: "Missing memberId or status" });
-    }
+  if (!memberId || !status) {
+    return res.status(400).json({ message: "Missing memberId or status" });
+  }
 
+  try {
     await query(`UPDATE members SET status = ? WHERE memberId = ?`, [status, memberId]);
 
     return res.status(200).json({
@@ -247,17 +210,17 @@ export const updateMemberStatus = async (req: Request, res: Response) => {
   }
 };
 
+// Delete member file
 export const deleteMemberFile = async (req: Request, res: Response) => {
   const { memberId } = req.body;
 
-  try {
-    if (!memberId) {
-      return res.status(400).json({ message: "Missing memberId" });
-    }
+  if (!memberId) {
+    return res.status(400).json({ message: "Missing memberId" });
+  }
 
-    // Get the latest uploaded file for the member
-    const result = await query(
-      `SELECT filename FROM documentsUploaded WHERE memberId = ?`,
+  try {
+    const result: any[] = await query(
+      `SELECT filename FROM documentsuploaded WHERE memberId = ? ORDER BY created_at DESC LIMIT 1`,
       [memberId]
     );
 
@@ -268,20 +231,17 @@ export const deleteMemberFile = async (req: Request, res: Response) => {
     const fileName = result[0].filename;
     const filePath = path.join(__dirname, "../../uploads", fileName);
 
-    // Delete from filesystem
     fs.unlink(filePath, async (err) => {
       if (err && err.code !== "ENOENT") {
         console.error("File deletion error:", err);
         return res.status(500).json({ message: "Failed to delete file from server." });
       }
 
-      // Delete the record for this file from documentsUploaded
       await query(
-        `DELETE FROM documentsUploaded WHERE memberId = ? AND filename = ?`,
+        `DELETE FROM documentsuploaded WHERE memberId = ? AND filename = ?`,
         [memberId, fileName]
       );
 
-      // Set applicationDocStatus to NULL in members table
       await query(
         `UPDATE members SET applicationDocStatus = NULL WHERE memberId = ?`,
         [memberId]
@@ -296,19 +256,5 @@ export const deleteMemberFile = async (req: Request, res: Response) => {
   }
 };
 
-export const getFilteredMembers = async (req: Request, res: Response) => {
-  const { state } = req.query;
-
-  try {
-    let members;
-
-    if (state && typeof state === 'string') {
-      members = await query('SELECT * FROM members WHERE state = ?', [state]);
-    }
-
-    res.json({ members }); // wrap in { members } for consistent structure
-  } catch (err) {
-    console.error('Failed to fetch members:', err);
-    res.status(500).json({ message: 'Server error' });
-  }
-};
+// Filtered members (redundant now; merged in getMember)
+export const getFilteredMembers = getMember;
